@@ -4,11 +4,16 @@ require 'tilt/erubis'
 require 'active_support/time'
 require 'openssl'
 require 'domain_name'
-require 'thread_safe'
 require 'rubygems/package'
 require './common'
 
-$challenges = ThreadSafe::Cache.new
+if ENV['MEMCACHED']
+  require 'dalli'
+  $challenges = Dalli::Client.new(ENV['MEMCACHED'], {:namespace => 'freshcerts'})
+else
+  require 'thread_safe'
+  $challenges = ThreadSafe::Cache.new
+end
 
 class Freshcerts::App < Sinatra::Base
   class DomainError < StandardError
@@ -53,7 +58,11 @@ class Freshcerts::App < Sinatra::Base
 
   get '/.well-known/acme-challenge/:id' do
     content_type 'text/plain'
-    $challenges[params[:id]]
+    if ENV['MEMCACHED']
+      $challenges.get(params[:id])
+    else
+      $challenges[params[:id]]
+    end
   end
 
   get '/v1/cert/:domain/should_reissue' do
@@ -104,7 +113,11 @@ class Freshcerts::App < Sinatra::Base
       authorization = Freshcerts.acme.authorize :domain => domain
       challenge = authorization.http01
       challenge_id = challenge.filename.sub /.*challenge\/?/, ''
-      $challenges[challenge_id] = challenge.file_content
+      if ENV['MEMCACHED']
+        $challenges.set(challenge_id, challenge.file_content)
+      else
+        $challenges[challenge_id] = challenge.file_content
+      end
       logger.info "make_challenge domain=#{domain} id=#{challenge_id}"
       challenge
     end
