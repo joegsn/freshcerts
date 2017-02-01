@@ -1,5 +1,46 @@
 # freshcerts [![unlicense](https://img.shields.io/badge/un-license-green.svg?style=flat)](http://unlicense.org)
 
+This is a fork of the [freshcerts](https://github.com/myfreeweb/freshcerts) project.
+I didn't want to push my needs on the original maintainer, who has a wonderfully simple architecture.  But I created this fork to:
+ - Support Passenger (by requiring using memcached).
+ - Enable PFX archive generation (for use with Windows).
+
+Everything from the original freshcerts documentation applies to this fork.
+
+####Passenger w/memcached
+
+Create a folder in your freshcerts directory called "public" as passenger will expect that to be the 'root' folder for any documents not handled by the webapp.
+
+When doing "bundle install" add the parameter "--with memcached":
+```bash
+$ bundle install --path vendor/bundle --with memcached
+```
+
+Then make sure to add the MEMCACHED environment variable to your passenger flags.  Here's a sample nginx site config:
+```nginx
+server {
+	listen 80;
+	server_name certs.example.org;
+	passenger_env_var	ACME_ENDPOINT 	"https://acme-v01.api.letsencrypt.org/";
+	passenger_env_var	ADMIN_EMAIL	"me@example.org";
+	passenger_env_var	DATA_ROOT	/usr/local/www/freshcerts/data;
+	passenger_env_var	MEMCACHED	"localhost:11211";
+	root			/usr/local/www/freshcerts/public;
+	passenger_enabled	on;
+	passenger_app_env	production;
+```
+
+#### PFX generation
+This only works from the `freshcert-multi-client` as it's the only one which has been edited to do this step.
+Add the environment variable/value `CREATE_PKCS='yes'`.  It actually doesn't matter what it's set to, just so long as it's defined.  Once the certificate is downloaded, it will go back and load the cert & key and build a PKCS12 .pfx file from them.
+
+Example:
+``` bash
+$ FRESHCERTS_HOST="localhost:9393" FRESHCERTS_TOKEN="eyJ0eXAiOi..." CREATE_PKCS="yes" freshcerts-multi-client subdomain.example.com 443 && service nginx reload
+```
+
+# freshcerts
+
 ![Screenshot](https://files.app.net/h02q76bXk.png)
 
 [ACME](https://letsencrypt.github.io/acme-spec/) (currently implemented by [Let's Encrypt](https://letsencrypt.org)) is a way to automatically (re)issue TLS certificates.
