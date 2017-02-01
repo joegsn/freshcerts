@@ -13,6 +13,7 @@ require 'fileutils'
 AUTH_TOKEN      = ENV['FRESHCERTS_TOKEN']
 FRESHCERTS_HOST = ENV['FRESHCERTS_HOST'] || 'localhost:9292'
 KEYS_DIRECTORY  = ENV['KEYS_DIRECTORY']  || '/usr/local/etc/certs'
+CREATE_PKCS     = ENV['CREATE_PKCS']
 
 def gen_csr(key, domains)
   csr = OpenSSL::X509::Request.new
@@ -50,7 +51,21 @@ def issue(domains, ports)
   FileUtils.mv "#{keypath}.new", keypath
 end
 
+def build_pkcs(domains)
+  rawcert = File.read "#{KEYS_DIRECTORY}/#{domains.join(',')}.cert.fullchain.pem"
+  rawkey  = File.read "#{KEYS_DIRECTORY}/#{domains.join(',')}.key.pem"
+  cert = OpenSSL::X509::Certificate.new rawcert
+  key = OpenSSL::PKey::RSA.new rawkey
+  pfx = OpenSSL::PKCS12.create('', "#{domains.join(',')}", key, cert)
+  File.open("#{KEYS_DIRECTORY}/#{domains.join(',')}.pfx", 'w') do |io|
+    io.write pfx.to_der
+  end
+end
+
 domains = ARGV.shift.split(',')
 ports = ARGV.shift
 resp = Net::HTTP.get_response(URI("#{FRESHCERTS_HOST}/v1/cert/#{domains.join(',')}/should_reissue"))
 issue(domains, ports) if resp.code == "200"
+if CREATE_PKCS
+  build_pkcs(domains) if resp.code == "200"
+end
