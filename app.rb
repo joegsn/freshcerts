@@ -9,7 +9,8 @@ require './common'
 
 if ENV['MEMCACHED']
   require 'dalli'
-  $challenges = Dalli::Client.new(ENV['MEMCACHED'], {:namespace => 'freshcerts'})
+  mc_namespace = ENV['MEMCACHED_NS'] || 'freshcerts'
+  $challenges = Dalli::Client.new(ENV['MEMCACHED'], {:namespace => mc_namespace})
 else
   require 'thread_safe'
   $challenges = ThreadSafe::Cache.new
