@@ -12,4 +12,6 @@ gem 'mail'
 gem 'domain_name'
 gem 'json-jwt'
 gem 'psych'
-gem 'dalli'
+group :memcached, :optional => true do
+	gem 'dalli'
+end
