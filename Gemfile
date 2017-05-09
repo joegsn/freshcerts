@@ -15,3 +15,6 @@ gem 'psych'
 group :memcached, :optional => true do
 	gem 'dalli'
 end
+group :pure_ruby_client, :optional => true do
+  gem 'rest-client'
+end

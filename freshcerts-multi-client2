@@ -9,11 +9,14 @@ require 'net/http'
 require 'uri'
 require 'open3'
 require 'fileutils'
+require 'rubygems/package'
+require 'rest-client'
 
 AUTH_TOKEN      = ENV['FRESHCERTS_TOKEN']
 FRESHCERTS_HOST = ENV['FRESHCERTS_HOST'] || 'localhost:9292'
 KEYS_DIRECTORY  = ENV['KEYS_DIRECTORY']  || '/usr/local/etc/certs'
 CREATE_PKCS     = ENV['CREATE_PKCS']
+COMPLETE_ERROR  = false
 
 def gen_csr(key, domains)
   csr = OpenSSL::X509::Request.new
@@ -36,22 +39,54 @@ def issue(domains, ports)
   key = OpenSSL::PKey::RSA.new 2048
   keypath = File.join(KEYS_DIRECTORY, "#{domains.join(',')}.key.pem")
   File.write "#{keypath}.new", key.to_s
-  # multipart requires a gem (or reimplementing it)
-  # ruby tar support is in rubygems' code which might be absent
-  stdin, wait_thrs = Open3.pipeline_w(
-    ['curl', '-s', '-X', 'POST',
-     "#{FRESHCERTS_HOST}/v1/cert/#{domains.join(',')}/issue",
-     '-F', 'csr=@-', '-F', "ports=#{ports}", '-F', "token=#{AUTH_TOKEN}"],
-    ['tar', '-C', KEYS_DIRECTORY, '-xf', '-']
-  )
-  stdin.write gen_csr(key, domains).to_s
-  stdin.close
-  exit_status = wait_thrs.last.value
-  exit exit_status.exitstatus unless exit_status.success?
+  csrpath = File.join(KEYS_DIRECTORY, "#{domains.join(',')}.csr")
+  File.write "#{csrpath}", gen_csr(key, domains).to_s
+  # Use RestClient to do the inquiry.
+  begin
+    response = RestClient.post "#{FRESHCERTS_HOST}/v1/cert/#{domains.join(',')}/issue", {
+      :csr   => File.new(csrpath, 'rb'),
+      :ports => ports,
+      :token => AUTH_TOKEN,
+    }
+  rescue RestClient::ExceptionWithResponse => e
+    print "\nError response received: #{e.response.code}\n"
+    if COMPLETE_ERROR
+      print e.response.body, "\n"
+    else
+      print e.response.body.lines.first, "\n"
+      print "freshcerts should send you an email with the complete error\n"
+    end
+    return
+  end
+  # Use Rubygems' TarReader to unpack the tarball.
+  tardata = StringIO.new
+  tardata.write response.body
+  tardata.rewind
+  Gem::Package::TarReader.new(tardata) do |tar|
+    tar.each do |entry|
+      if entry.file?
+        filepath = File.join(KEYS_DIRECTORY, entry.full_name)
+        FileUtils.mkdir_p(File.dirname(filepath))
+        File.open(filepath, "wb") do |f|
+          f.write(entry.read)
+        end
+        File.chmod(entry.header.mode, filepath)
+      end
+    end
+  end
+  tardata.close
   FileUtils.mv "#{keypath}.new", keypath
 end
 
 def build_pkcs(domains)
+  unless File.exists? "#{KEYS_DIRECTORY}/#{domains.join(',')}.cert.fullchain.pem"
+    print "Unable to build PKCS, cert (pem) not found."
+    return
+  end
+  unless File.exists? "#{KEYS_DIRECTORY}/#{domains.join(',')}.key.pem"
+    print "Unable to build PKCS, key (pem) not found."
+    return
+  end
   rawcert = File.read "#{KEYS_DIRECTORY}/#{domains.join(',')}.cert.fullchain.pem"
   rawkey  = File.read "#{KEYS_DIRECTORY}/#{domains.join(',')}.key.pem"
   cert = OpenSSL::X509::Certificate.new rawcert
@@ -65,7 +100,11 @@ end
 domains = ARGV.shift.split(',')
 ports = ARGV.shift
 resp = Net::HTTP.get_response(URI("#{FRESHCERTS_HOST}/v1/cert/#{domains.join(',')}/should_reissue"))
-issue(domains, ports) if resp.code == "200"
-if CREATE_PKCS
-  build_pkcs(domains) if resp.code == "200"
+if resp.code == "200"
+  issue(domains, ports)
+  if CREATE_PKCS
+    build_pkcs(domains)
+  end
+else
+  print "#{resp.code}, #{resp.body}\n"
 end

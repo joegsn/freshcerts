@@ -1,5 +1,7 @@
 # freshcerts [![unlicense](https://img.shields.io/badge/un-license-green.svg?style=flat)](http://unlicense.org)
 
+## Fork information:
+
 This is a fork of the [freshcerts](https://github.com/myfreeweb/freshcerts) project.
 I didn't want to push my needs on the original maintainer, who has a wonderfully simple architecture.  But I created this fork to:
  - Support Passenger (by requiring using memcached).
@@ -7,7 +9,7 @@ I didn't want to push my needs on the original maintainer, who has a wonderfully
 
 Everything from the original freshcerts documentation applies to this fork.
 
-####Passenger w/memcached
+#### Passenger w/memcached
 
 Create a folder in your freshcerts directory called "public" as passenger will expect that to be the 'root' folder for any documents not handled by the webapp.
 
@@ -38,6 +40,16 @@ Example:
 ``` bash
 $ FRESHCERTS_HOST="localhost:9393" FRESHCERTS_TOKEN="eyJ0eXAiOi..." CREATE_PKCS="yes" freshcerts-multi-client subdomain.example.com 443 && service nginx reload
 ```
+
+#### Windows IIS (single-site) & Exchange servers
+LetsEncrypt has had support for Exchange for a while (and obviously IIS is just another webserver).  Ruby support on Windows is definitely existing, but some of the great commands available on most unix systems (curl & tar, in particular) simply don't exist in any standard form on Windows.  It's definitely possible to add them, but it seemed simpler to me to add a gem & make assumptions about the use of the RubyInstaller.org package.
+
+freshcerts-multi-client2 is a pure-ruby (no curl, no tar) implementation, with the added dependencies on Rubygem's TarReader, and rest-client.  Add ```--with pure_ruby_client``` to the bundler install line if you desire to use it.  (On Windows, you can get away with the RubyInstaller.org package, and then "gem install rest-client" and not use bundler at all, as all other dependencies are part of the rubyinstaller.org package.)
+
+Included in the tree are two sample scripts, ```set_exchange_cert.rb``` and ```set_windows_cert.rb```.  With the correct token, freshcerts server, and domain(s) specified, the scripts will use the pure-ruby client to get a cert, and then through various Windows/powershell utilities check & update the security certified used by IIS or Exchange.  I haven't had a need to run multiple websites with different SSL certs on the same IIS system, so that's left as a future experiment (which I hope to never have to do).
+
+For the IIS configuration, LetsEncrypt supports URL Redirects.  This makes it pretty easy to just redirect the .well-known path to the freshcerts server.  Add an entry (application/virtual directory) under your WebSite definition, and then set it's ```HTTP Redirect``` to the freshcerts server, eg: http://freshcerts.mydomain.org/.well-known/
+I set the status code to "permanent (301)" since it is a permanent entry.  I don't know if the other code choices would work as well.
 
 # freshcerts
 
